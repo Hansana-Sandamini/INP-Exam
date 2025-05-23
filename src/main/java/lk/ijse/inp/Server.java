@@ -18,6 +18,7 @@ import java.util.Scanner;
 public class Server extends Thread implements Initializable {
 
     boolean isRunning = true;
+    private long serverStartTime;
 
     @Override
     public void run() {
@@ -44,7 +45,6 @@ public class Server extends Thread implements Initializable {
                 throw new RuntimeException(e);
             }
         });
-
     }
 
     public static void main(String[] args) {
@@ -91,7 +91,8 @@ public class Server extends Thread implements Initializable {
 
     @Override
     public void initialize(URL location, ResourceBundle resources) {
-            connectToClient();
+        serverStartTime = System.currentTimeMillis();
+        connectToClient();
         new Thread(() -> {
             ServerSocket serverSocket;
 
@@ -101,7 +102,7 @@ public class Server extends Thread implements Initializable {
 
                 while (isRunning) {
                     Socket socket = serverSocket.accept();
-                    ClientHandler clientHandler = new ClientHandler();
+                    ClientHandler clientHandler = new ClientHandler(socket);
                     clients.add(clientHandler);
                     clientHandler.start();
                 }
@@ -116,10 +117,60 @@ public class Server extends Thread implements Initializable {
     private class ClientHandler {
         DataInputStream dataInputStream;
         DataOutputStream dataOutputStream;
+        Socket socket;
+
+        public ClientHandler(Socket socket) {
+            this.socket = socket;
+            try {
+                this.dataInputStream = new DataInputStream(socket.getInputStream());
+                this.dataOutputStream = new DataOutputStream(socket.getOutputStream());
+            } catch (IOException e) {
+                System.out.println("Error initializing client streams: " + e.getMessage());
+            }
+        }
 
         public void start() throws IOException {
-            while (isRunning) {
-                dataInputStream.readUTF();
+            while (true) {
+                String msg = dataInputStream.readUTF();
+                System.out.println("Received from client: " + msg);
+
+                switch (msg.toUpperCase()) {
+                    case "TIME" -> {
+                        dataOutputStream.writeUTF("Current Time: " + LocalTime.now());
+                        System.out.println("Current Time: " + LocalTime.now());
+                    }
+                    case "DATE" -> {
+                        dataOutputStream.writeUTF("Current Date: " + LocalDate.now());
+                        System.out.println("Current Date: " + LocalDate.now());
+                    }
+                    case "UPTIME" -> {
+                        long currentTime = System.currentTimeMillis();
+                        long uptimeSeconds = (currentTime - serverStartTime) / 1000;
+                        dataOutputStream.writeUTF("Uptime: " + uptimeSeconds + " seconds");
+                        System.out.println("Uptime: " + uptimeSeconds + " seconds");
+                    }
+                    case "BYE" -> {
+                        dataOutputStream.writeUTF("BYE");
+                        System.out.println("Client disconnected: " + socket.getRemoteSocketAddress());
+                        closeConnection();
+                        return;
+                    }
+                    default -> {
+                        dataOutputStream.writeUTF("Unknown command: " + msg);
+                    }
+                }
+
+                dataOutputStream.flush();
+            }
+        }
+
+        private void closeConnection() {
+            try {
+                if (dataInputStream != null) dataInputStream.close();
+                if (dataOutputStream != null) dataOutputStream.close();
+                if (socket != null && !socket.isClosed()) socket.close();
+            } catch (IOException e) {
+                System.out.println("Error closing connection: " + e.getMessage());
             }
         }
     }
